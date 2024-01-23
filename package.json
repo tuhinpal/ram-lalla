@@ -1,0 +1,17 @@
+{
+  "name": "ram-lalla",
+  "version": "1.0.0",
+  "description": "View the [demo](https://ram-lalla.vercel.app/).",
+  "main": "download.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {}
+}
