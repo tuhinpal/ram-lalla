@@ -10,7 +10,8 @@ async function extractFrames() {
   }
   fs.mkdirSync("assets/frames");
 
-  const cmd = "ffmpeg -i assets/video.mp4 -vf fps=10 assets/frames/%d.png";
+  // reverse the video
+  const cmd = `ffmpeg -i assets/video.mp4 -vf "fps=10,reverse" assets/frames/%d.png`;
   cp.execSync(cmd);
 }
 
@@ -50,4 +51,4 @@ async function createConfig() {
 
 // extractFrames();
 // convertFrames();
-// createConfig();
+createConfig();
