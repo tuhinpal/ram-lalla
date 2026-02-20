@@ -1,90 +1,227 @@
 <!DOCTYPE html>
-<html>
-
-<head>
-  <title>Ram Lalla</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-
-<body class="bg-black">
-  <div class="w-screen h-screen flex justify-center items-center overflow-hidden">
-    <img id="currentImage" alt="Image" style="display: none" class="w-screen object-cover h-screen" />
-  </div>
-
-  <h1 class="z-10 fixed bottom-5 left-5 text-2xl font-medium text-white">
-    Scroll Down
-  </h1>
-
-  <script>
-    const config = {
-      path: "/assets/frames/",
-      configFile: "config.json",
-    };
-
-    const imageElement = document.getElementById("currentImage");
-
-    let imageMap = {};
-    let currentImageIndex = 1;
-    let totalImages = 0;
-
-    document.addEventListener("DOMContentLoaded", init);
-
-    async function init() {
-      const response = await fetch(`${config.path}${config.configFile}`);
-      const data = await response.json();
-
-      totalImages = data.length;
-      data.map((image, index) => {
-        imageMap[index + 1] = `${config.path}${image}`;
-      });
-
-      imageElement.src = imageMap[currentImageIndex];
-      imageElement.style.display = "block";
-
-      doPrefetch();
-
-      window.addEventListener("wheel", function(event) {
-        if (event.deltaY < 0) {
-          previousImage();
-        } else {
-          nextImage();
-        }
-      });
-
-      window.addEventListener("keydown", function(event) {
-        if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-          previousImage();
-        } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-          nextImage();
-        }
-      });
-    }
-
-    function nextImage() {
-      currentImageIndex++;
-      if (currentImageIndex > totalImages) {
-        currentImageIndex = totalImages;
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Ram Lalla</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/ScrollTrigger.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
 
-      imageElement.src = imageMap[currentImageIndex];
-    }
-
-    function previousImage() {
-      currentImageIndex--;
-      if (currentImageIndex < 1) {
-        currentImageIndex = 1;
+      html,
+      body {
+        overscroll-behavior: none;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
       }
 
-      imageElement.src = imageMap[currentImageIndex];
-    }
-
-    function doPrefetch() {
-      for (let i = 1; i <= totalImages; i++) {
-        const image = new Image();
-        image.src = imageMap[i];
+      #loader {
+        transition: opacity 0.6s ease-out;
       }
-    }
-  </script>
-</body>
 
+      #hint {
+        transition: opacity 0.8s ease-out;
+      }
+
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+
+  <body class="bg-black">
+    <!-- Loading screen -->
+    <div
+      id="loader"
+      class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black"
+    >
+      <h2 class="text-white text-xl font-light tracking-widest mb-8 uppercase">
+        Ram Lalla
+      </h2>
+      <div class="w-48 h-[2px] bg-white/20 rounded-full overflow-hidden">
+        <div
+          id="progressBar"
+          class="h-full bg-white rounded-full transition-all duration-150 ease-out"
+          style="width: 0%"
+        ></div>
+      </div>
+      <p
+        id="progressText"
+        class="text-white/60 text-sm mt-4 font-light tracking-wider"
+      >
+        0%
+      </p>
+    </div>
+
+    <!-- Scroll container -->
+    <div id="scrollContainer">
+      <canvas id="frameCanvas"></canvas>
+    </div>
+
+    <!-- Scroll hint -->
+    <h1
+      id="hint"
+      class="z-10 fixed bottom-5 left-5 text-2xl font-medium text-white"
+      style="opacity: 0"
+    >
+      Scroll to explore
+    </h1>
+
+    <script>
+      gsap.registerPlugin(ScrollTrigger);
+
+      const TOTAL_FRAMES = 210;
+      const FRAME_PATH = "/assets/frames/";
+      const SCROLL_HEIGHT_VH = 500;
+
+      const canvas = document.getElementById("frameCanvas");
+      const ctx = canvas.getContext("2d");
+      const loader = document.getElementById("loader");
+      const progressBar = document.getElementById("progressBar");
+      const progressText = document.getElementById("progressText");
+      const hint = document.getElementById("hint");
+      const scrollContainer = document.getElementById("scrollContainer");
+
+      const frames = new Array(TOTAL_FRAMES);
+      let currentFrame = 0;
+
+      function frameUrl(index) {
+        return `${FRAME_PATH}${index + 1}.jpg`;
+      }
+
+      function sizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+
+      function drawFrame(index) {
+        const img = frames[index];
+        if (!img) return;
+
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const iw = img.naturalWidth;
+        const ih = img.naturalHeight;
+
+        // "object-fit: cover" logic
+        const scale = Math.max(cw / iw, ch / ih);
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = (cw - dw) / 2;
+        const dy = (ch - dh) / 2;
+
+        ctx.clearRect(0, 0, cw, ch);
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+
+      function preloadImages() {
+        let loaded = 0;
+
+        return new Promise((resolve) => {
+          for (let i = 0; i < TOTAL_FRAMES; i++) {
+            const img = new Image();
+            img.src = frameUrl(i);
+
+            img.onload = () => {
+              frames[i] = img;
+              loaded++;
+              const pct = Math.round((loaded / TOTAL_FRAMES) * 100);
+              progressBar.style.width = `${pct}%`;
+              progressText.textContent = `${pct}%`;
+
+              if (loaded === TOTAL_FRAMES) {
+                resolve();
+              }
+            };
+
+            img.onerror = () => {
+              loaded++;
+              if (loaded === TOTAL_FRAMES) {
+                resolve();
+              }
+            };
+          }
+        });
+      }
+
+      function hideLoader() {
+        loader.style.opacity = "0";
+        setTimeout(() => {
+          loader.style.display = "none";
+        }, 600);
+      }
+
+      function showHint() {
+        hint.style.opacity = "1";
+      }
+
+      function initScrollAnimation() {
+        scrollContainer.style.height = `${SCROLL_HEIGHT_VH}vh`;
+        canvas.style.position = "fixed";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+
+        const frameObj = { value: 0 };
+
+        gsap.to(frameObj, {
+          value: TOTAL_FRAMES - 1,
+          ease: "none",
+          scrollTrigger: {
+            trigger: scrollContainer,
+            start: "top top",
+            end: "bottom bottom",
+            scrub: 0.5,
+            onUpdate: (self) => {
+              const idx = Math.round(self.progress * (TOTAL_FRAMES - 1));
+              if (idx !== currentFrame) {
+                currentFrame = idx;
+                drawFrame(currentFrame);
+              }
+            },
+          },
+        });
+
+        // Fade out hint after the user starts scrolling
+        gsap.to(hint, {
+          opacity: 0,
+          scrollTrigger: {
+            trigger: scrollContainer,
+            start: "top top",
+            end: "5% top",
+            scrub: true,
+          },
+        });
+      }
+
+      async function init() {
+        sizeCanvas();
+        await preloadImages();
+
+        drawFrame(0);
+        hideLoader();
+
+        requestAnimationFrame(() => {
+          showHint();
+          initScrollAnimation();
+        });
+
+        window.addEventListener("resize", () => {
+          sizeCanvas();
+          drawFrame(currentFrame);
+          ScrollTrigger.refresh();
+        });
+      }
+
+      init();
+    </script>
+  </body>
 </html>

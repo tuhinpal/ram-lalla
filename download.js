@@ -22,7 +22,7 @@ async function convertFrames() {
   for (const jpg of jpgs) {
     const input = `assets/frames/${jpg}`;
     const output = `assets/frames/${jpg.replace(".png", ".jpg")}`;
-    await sharp(input).resize(1280, 720).jpeg({ quality: 30 }).toFile(output);
+    await sharp(input).resize(1920, 1080).jpeg({ quality: 75 }).toFile(output);
 
     console.log(`Converted ${input} to ${output}`);
   }
