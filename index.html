@@ -58,7 +58,7 @@
         id="progressText"
         class="text-white/60 text-sm mt-4 font-light tracking-wider"
       >
-        0%
+        Loading...
       </p>
     </div>
 
@@ -70,18 +70,24 @@
     <!-- Scroll hint -->
     <h1
       id="hint"
-      class="z-10 fixed bottom-5 left-5 text-2xl font-medium text-white"
+      class="z-10 fixed bottom-5 left-5 text-xs font-medium text-white bg-black/30 backdrop-blur-sm rounded-full px-2.5 py-1.5"
       style="opacity: 0"
     >
       Scroll to explore
     </h1>
 
-    <script>
+    <script type="module">
+      import {
+        Input,
+        ALL_FORMATS,
+        BlobSource,
+        VideoSampleSink,
+      } from "https://esm.sh/mediabunny@latest";
+
       gsap.registerPlugin(ScrollTrigger);
 
-      const TOTAL_FRAMES = 210;
-      const FRAME_PATH = "/assets/frames/";
       const SCROLL_HEIGHT_VH = 500;
+      const VIDEO_SRC = "/assets/video.mp4";
 
       const canvas = document.getElementById("frameCanvas");
       const ctx = canvas.getContext("2d");
@@ -91,12 +97,10 @@
       const hint = document.getElementById("hint");
       const scrollContainer = document.getElementById("scrollContainer");
 
-      const frames = new Array(TOTAL_FRAMES);
-      let currentFrame = 0;
-
-      function frameUrl(index) {
-        return `${FRAME_PATH}${index + 1}.jpg`;
-      }
+      let videoDuration = 0;
+      let frames = [];
+      let totalFrames = 0;
+      let currentFrameIndex = 0;
 
       function sizeCanvas() {
         canvas.width = window.innerWidth;
@@ -104,53 +108,123 @@
       }
 
       function drawFrame(index) {
-        const img = frames[index];
-        if (!img) return;
+        const sample = frames[index];
+        if (!sample) return;
 
         const cw = canvas.width;
         const ch = canvas.height;
-        const iw = img.naturalWidth;
-        const ih = img.naturalHeight;
+        const vw = sample.displayWidth || sample.width;
+        const vh = sample.displayHeight || sample.height;
+        if (!vw || !vh) return;
 
-        // "object-fit: cover" logic
-        const scale = Math.max(cw / iw, ch / ih);
-        const dw = iw * scale;
-        const dh = ih * scale;
+        const scale = Math.max(cw / vw, ch / vh);
+        const dw = vw * scale;
+        const dh = vh * scale;
         const dx = (cw - dw) / 2;
         const dy = (ch - dh) / 2;
 
         ctx.clearRect(0, 0, cw, ch);
-        ctx.drawImage(img, dx, dy, dw, dh);
+        sample.draw(ctx, dx, dy, dw, dh);
       }
 
-      function preloadImages() {
-        let loaded = 0;
+      async function fetchVideoBlob() {
+        progressText.textContent = "Fetching video...";
+        const response = await fetch(VIDEO_SRC);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch video: ${response.status}`);
+        }
 
-        return new Promise((resolve) => {
-          for (let i = 0; i < TOTAL_FRAMES; i++) {
-            const img = new Image();
-            img.src = frameUrl(i);
+        const totalBytes = parseInt(
+          response.headers.get("content-length") || "0"
+        );
+        let loadedBytes = 0;
 
-            img.onload = () => {
-              frames[i] = img;
-              loaded++;
-              const pct = Math.round((loaded / TOTAL_FRAMES) * 100);
+        const reader = response.body?.getReader();
+        const chunks = [];
+
+        if (reader) {
+          // Stream with progress if supported
+          // (Some environments may not support streaming; we handle that gracefully.)
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            loadedBytes += value.length;
+
+            if (totalBytes > 0) {
+              const pct = Math.round((loadedBytes / totalBytes) * 70); // up to 70% during fetch
               progressBar.style.width = `${pct}%`;
               progressText.textContent = `${pct}%`;
-
-              if (loaded === TOTAL_FRAMES) {
-                resolve();
-              }
-            };
-
-            img.onerror = () => {
-              loaded++;
-              if (loaded === TOTAL_FRAMES) {
-                resolve();
-              }
-            };
+            }
           }
+          return new Blob(chunks);
+        }
+
+        // Fallback: no streaming reader, just fetch blob
+        const blob = await response.blob();
+        progressBar.style.width = "70%";
+        progressText.textContent = "70%";
+        return blob;
+      }
+
+      async function decodeFrames(blob) {
+        progressText.textContent = "Decoding frames...";
+
+        const input = new Input({
+          formats: ALL_FORMATS,
+          source: new BlobSource(blob),
         });
+
+        const videoTrack = await input.getPrimaryVideoTrack();
+        if (!videoTrack) {
+          throw new Error("No video track found");
+        }
+
+        const decodable = await videoTrack.canDecode();
+        if (!decodable) {
+          throw new Error("Video cannot be decoded in this browser");
+        }
+
+        videoDuration = await videoTrack.computeDuration();
+
+        const sink = new VideoSampleSink(videoTrack);
+        frames = [];
+
+        let lastPct = 70; // continue from fetch progress
+
+        for await (const sample of sink.samples(0, videoDuration)) {
+          frames.push(sample);
+
+          if (videoDuration > 0 && typeof sample.timestamp === "number") {
+            const decodePct =
+              70 + Math.round((sample.timestamp / videoDuration) * 30); // 70%–100%
+            if (decodePct !== lastPct) {
+              lastPct = decodePct;
+              progressBar.style.width = `${Math.min(decodePct, 100)}%`;
+              progressText.textContent = `${Math.min(decodePct, 100)}%`;
+            }
+          }
+        }
+
+        totalFrames = frames.length;
+        if (!totalFrames) {
+          throw new Error("No frames decoded from video");
+        }
+
+        progressBar.style.width = "100%";
+        progressText.textContent = "100%";
+      }
+
+      async function loadAndDecodeVideo() {
+        try {
+          const blob = await fetchVideoBlob();
+          await decodeFrames(blob);
+          return true;
+        } catch (error) {
+          console.error("Error loading/decoding video:", error);
+          progressText.textContent = `Error: ${error.message}`;
+          return false;
+        }
       }
 
       function hideLoader() {
@@ -173,7 +247,7 @@
         const frameObj = { value: 0 };
 
         gsap.to(frameObj, {
-          value: TOTAL_FRAMES - 1,
+          value: totalFrames - 1,
           ease: "none",
           scrollTrigger: {
             trigger: scrollContainer,
@@ -181,16 +255,15 @@
             end: "bottom bottom",
             scrub: 0.5,
             onUpdate: (self) => {
-              const idx = Math.round(self.progress * (TOTAL_FRAMES - 1));
-              if (idx !== currentFrame) {
-                currentFrame = idx;
-                drawFrame(currentFrame);
+              const idx = Math.round(self.progress * (totalFrames - 1));
+              if (idx !== currentFrameIndex) {
+                currentFrameIndex = idx;
+                drawFrame(currentFrameIndex);
               }
             },
           },
         });
 
-        // Fade out hint after the user starts scrolling
         gsap.to(hint, {
           opacity: 0,
           scrollTrigger: {
@@ -204,8 +277,11 @@
 
       async function init() {
         sizeCanvas();
-        await preloadImages();
 
+        const ok = await loadAndDecodeVideo();
+        if (!ok) return;
+
+        // Draw the first frame (old image-sequence style)
         drawFrame(0);
         hideLoader();
 
@@ -216,7 +292,7 @@
 
         window.addEventListener("resize", () => {
           sizeCanvas();
-          drawFrame(currentFrame);
+          drawFrame(currentFrameIndex);
           ScrollTrigger.refresh();
         });
       }
